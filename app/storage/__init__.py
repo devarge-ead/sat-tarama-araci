@@ -1,0 +1,1 @@
+"""Persistent user settings stored as JSON next to the executable."""

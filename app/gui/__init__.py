@@ -1,0 +1,1 @@
+"""Graphical user interface built with PySide6."""
