@@ -4,14 +4,20 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QRadioButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
+
+from ..core import searcher
+from ..core.searcher import SEARCH_MODE_SIMILARITY, SEARCH_MODE_SUBSTRING
 
 # Search fields in display order; keys used to persist user input.
 SEARCH_FIELDS = [
@@ -48,6 +54,32 @@ class SearchPanel(QWidget):
             field_box.addWidget(edit)
             fields_row.addLayout(field_box, 1)
 
+        # Search method selection: substring (default) or advanced similarity.
+        self._substring_radio = QRadioButton("Substring Match")
+        self._substring_radio.setChecked(True)
+        self._similarity_radio = QRadioButton("Similarity Match")
+
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.addButton(self._substring_radio)
+        self._mode_group.addButton(self._similarity_radio)
+
+        self._threshold = QSpinBox()
+        self._threshold.setRange(0, 100)
+        self._threshold.setValue(80)
+        self._threshold.setSuffix(" %")
+        self._threshold.setEnabled(False)
+        self._threshold_label = QLabel("Similarity Threshold:")
+
+        method_row = QHBoxLayout()
+        method_row.setSpacing(8)
+        method_row.addWidget(self._substring_radio)
+        method_row.addWidget(self._similarity_radio)
+        method_row.addStretch()
+        method_row.addWidget(self._threshold_label)
+        method_row.addWidget(self._threshold)
+
+        self._substring_radio.toggled.connect(self._on_method_toggled)
+
         self._start_btn = QPushButton("Start Search")
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setObjectName("ghostButton")
@@ -71,10 +103,25 @@ class SearchPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         layout.addLayout(fields_row)
+        layout.addLayout(method_row)
         layout.addWidget(self._progress)
         layout.addLayout(button_row)
 
     # ------------------------------------------------------------------ api
+    def _on_method_toggled(self, checked: bool) -> None:
+        """Enable/disable the threshold control for the similarity method."""
+        self._threshold.setEnabled(self._similarity_radio.isChecked())
+        self._threshold_label.setEnabled(self._similarity_radio.isChecked())
+
+    def mode(self) -> str:
+        """Return the selected search method key."""
+        return SEARCH_MODE_SIMILARITY if self._similarity_radio.isChecked() \
+            else SEARCH_MODE_SUBSTRING
+
+    def similarity_threshold(self) -> float:
+        """Return the similarity threshold percentage."""
+        return float(self._threshold.value())
+
     def parameters(self) -> dict[str, str]:
         """Return the current values of every search field."""
         return {key: edit.text().strip() for key, edit in self._edits.items()}
@@ -93,6 +140,14 @@ class SearchPanel(QWidget):
         self._cancel_btn.setEnabled(running)
         for edit in self._edits.values():
             edit.setEnabled(not running)
+        self._substring_radio.setEnabled(not running)
+        self._similarity_radio.setEnabled(not running)
+        if running:
+            self._threshold.setEnabled(False)
+            self._threshold_label.setEnabled(False)
+        else:
+            self._threshold.setEnabled(self._similarity_radio.isChecked())
+            self._threshold_label.setEnabled(self._similarity_radio.isChecked())
 
     def set_progress(self, current: int, total: int) -> None:
         if total <= 0:

@@ -205,6 +205,37 @@ def style_sheet() -> str:
         width: 14px;
         height: 14px;
     }}
+    QRadioButton {{
+        spacing: 6px;
+        background-color: transparent;
+        color: {TEXT};
+    }}
+    QRadioButton:focus {{
+        outline: none;
+    }}
+    QRadioButton::indicator {{
+        width: 15px;
+        height: 15px;
+        border: 1px solid {BORDER};
+        border-radius: 8px;
+        background-color: {BACKGROUND};
+    }}
+    QRadioButton::indicator:checked {{
+        border: 1px solid {BORDER};
+        background-color: qradialgradient(
+            cx: 0.5, cy: 0.5,
+            radius: 0.5,
+            fx: 0.5, fy: 0.5,
+            stop: 0.40 {PRIMARY},
+            stop: 0.55 {BACKGROUND}
+        );
+    }}
+    QRadioButton:disabled {{
+        color: {DISABLED_TEXT};
+    }}
+    QRadioButton::indicator:disabled {{
+        border: 1px solid {BORDER};
+    }}
     QTabWidget::pane {{
         border: 1px solid {BORDER};
         border-radius: 4px;

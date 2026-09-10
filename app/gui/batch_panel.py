@@ -39,6 +39,7 @@ COLUMNS = [
     "Archive Item",
     "Archive CAS No",
     "Archive SAT No",
+    "Archive Row",
 ]
 
 SOURCE_ROLE = Qt.ItemDataRole.UserRole
@@ -104,7 +105,7 @@ class BatchPanel(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setMinimumSectionSize(60)
         widths = {0: 50, 1: 200, 2: 100, 3: 70, 4: 80, 5: 60, 6: 90,
-                  7: 90, 8: 150, 9: 200, 10: 100, 11: 100}
+                  7: 90, 8: 150, 9: 200, 10: 100, 11: 100, 12: 80}
         for column, width in widths.items():
             self._tree.setColumnWidth(column, width)
 
@@ -213,12 +214,11 @@ class BatchPanel(QWidget):
             "", "", "", "", match.matched_by,
             f"{match.similarity:g}", match.period, match.list_folder,
             match.excel_file, match.item, match.cas_no, match.sat_no,
+            str(match.row_number),
         ])
         child.setData(0, SOURCE_ROLE, match.source_path)
         child.setToolTip(9, match.item)
         parent.addChild(child)
-        if parent.childCount() == 1:
-            parent.setExpanded(True)
         parent.setText(3, str(parent.childCount()))
 
     def _group_item(self, match: BatchMatch) -> QTreeWidgetItem:
@@ -232,7 +232,7 @@ class BatchPanel(QWidget):
             str(match.input_index),
             entry.item if entry else "",
             entry.cas_no if entry else "",
-            "0", "", "", "", "", "", "", "", "",
+            "0", "", "", "", "", "", "", "", "", "", "", "",
         ])
         item.setToolTip(1, entry.item if entry else "")
         flags = item.flags()

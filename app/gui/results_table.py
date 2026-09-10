@@ -35,6 +35,8 @@ COLUMNS = [
     "Item",
     "CAS No",
     "SAT No",
+    "Similarity",
+    "Excel Row",
 ]
 
 PERIOD_COLUMN = 0
@@ -90,6 +92,8 @@ class ResultsTable(QWidget):
             8: 140,  # Item
             9: 90,   # CAS No
             10: 110,  # SAT No
+            11: 90,   # Similarity
+            12: 80,   # Excel Row
         }
         for column in range(len(COLUMNS)):
             self._table.setColumnWidth(column, base_widths[column])
@@ -127,6 +131,8 @@ class ResultsTable(QWidget):
             result.item,
             result.cas_no,
             result.sat_no,
+            f"{result.similarity:g}%",
+            str(result.row_number),
         ]
         for col, value in enumerate(values):
             cell = QTableWidgetItem(value)
@@ -193,6 +199,7 @@ class ResultsTable(QWidget):
                         result.excel_file, result.created, result.modified,
                         result.project_code, result.project_name, result.demanded_by,
                         result.item, result.cas_no, result.sat_no,
+                        f"{result.similarity:g}%", result.row_number,
                     ])
         except OSError as exc:
             QMessageBox.warning(self, "Export Failed", f"Could not write the file:\n{exc}")

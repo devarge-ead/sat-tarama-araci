@@ -9,6 +9,10 @@ from PySide6.QtCore import QThread, Signal
 from . import excel_reader
 from .folder_tree import list_folder_excels, month_number_from_name
 from .models import ScanResult, YearFolder
+from .similarity import item_similarity
+
+SEARCH_MODE_SUBSTRING = "substring"
+SEARCH_MODE_SIMILARITY = "similarity"
 
 # Map each search field to a set of header prefixes (already lowercase).
 HEADER_PREFIXES = {
@@ -53,7 +57,7 @@ def map_columns(headers: list[str]) -> tuple[dict[str, int], set[str]]:
 
 
 def _match(row: list[str], mapping: dict[str, int], criteria: dict[str, str]) -> bool:
-    """Return True when the row satisfies every criterion."""
+    """Return True when the row satisfies every criterion (substring)."""
     for field, search_value in criteria.items():
         column = mapping.get(field)
         if column is None:
@@ -62,6 +66,46 @@ def _match(row: list[str], mapping: dict[str, int], criteria: dict[str, str]) ->
         if search_value.strip().lower() not in cell_value.lower():
             return False
     return True
+
+
+# Fields matched by substring even in similarity mode: they are identifiers/codes
+# where fuzzy similarity is unreliable, mirroring how batch search handles CAS.
+IDENTIFIER_FIELDS = ("project_code", "cas_no", "sat_no")
+
+
+def _similarity_match(row: list[str], mapping: dict[str, int],
+                      criteria: dict[str, str], threshold: float,
+                      similarity) -> tuple[bool, float]:
+    """Similarity-based match.
+
+    Returns (matched, score). Free-text fields (project_name, demanded_by,
+    item) match when the search term is a substring of the value (score 100)
+    or when the fuzzy similarity reaches the threshold; identifier fields are
+    matched by substring. Every criterion must pass (AND).
+    """
+    scores: list[float] = []
+    for field, search_value in criteria.items():
+        column = mapping.get(field)
+        if column is None:
+            return False, 0.0
+        cell_value = row[column] if column < len(row) else ""
+        if field in IDENTIFIER_FIELDS:
+            result = search_value.strip().lower() in cell_value.lower()
+            score = 100.0 if result else 0.0
+        else:
+            # A substring hit is a guaranteed match (score 100); otherwise a
+            # fuzzy hit passes only when its similarity reaches the threshold.
+            # This keeps similarity a superset of the substring results.
+            if search_value.strip().lower() in cell_value.lower():
+                score = 100.0
+                result = True
+            else:
+                score = similarity(search_value, cell_value)
+                result = score >= threshold
+        if not result:
+            return False, 0.0
+        scores.append(score)
+    return True, round(min(scores), 1)
 
 
 def _format_timestamp(path: Path, timestamp: float) -> str:
@@ -86,10 +130,14 @@ class SearchThread(QThread):
     error = Signal(str)
     finished_search = Signal(int)        # number of files scanned
 
-    def __init__(self, year_folders: list[YearFolder], criteria: dict[str, str], parent=None):
+    def __init__(self, year_folders: list[YearFolder], criteria: dict[str, str],
+                 mode: str = SEARCH_MODE_SUBSTRING, similarity_threshold: float = 80.0,
+                 parent=None):
         super().__init__(parent)
         self._year_folders = year_folders
         self._criteria = criteria
+        self._mode = mode
+        self._threshold = similarity_threshold
         self._cancel_requested = False
 
     def cancel(self) -> None:
@@ -132,29 +180,39 @@ class SearchThread(QThread):
                     month_num = month_number_from_name(month_name)
                     period = f"{year.name}-{month_num:02d}" if month_num is not None else month_name
                     list_folder_name = file_path.parent.name
-                    for data_row in rows[1:]:
+                    for data_row_number, data_row in enumerate(rows[1:], start=2):
                         if not data_row:
                             continue
-                        if _match(data_row, mapping, self._criteria):
-                            created = _format_timestamp(file_path, file_path.stat().st_ctime)
-                            modified = _format_timestamp(file_path, file_path.stat().st_mtime)
-                            result = ScanResult(
-                                year_folder=year.name,
-                                month_folder=month_name,
-                                period=period,
-                                list_folder=list_folder_name,
-                                excel_file=file_path.name,
-                                created=created,
-                                modified=modified,
-                                project_code=_get(data_row, mapping, "project_code"),
-                                project_name=_get(data_row, mapping, "project_name"),
-                                demanded_by=_get(data_row, mapping, "demanded_by"),
-                                item=_get(data_row, mapping, "item"),
-                                cas_no=_get(data_row, mapping, "cas_no"),
-                                sat_no=_get(data_row, mapping, "sat_no"),
-                                source_path=str(file_path),
-                            )
-                            self.result_found.emit(result)
+                        if self._mode == SEARCH_MODE_SIMILARITY:
+                            matched, similarity_score = _similarity_match(
+                                data_row, mapping, self._criteria, self._threshold,
+                                item_similarity)
+                        else:
+                            matched = _match(data_row, mapping, self._criteria)
+                            similarity_score = 100.0
+                        if not matched:
+                            continue
+                        created = _format_timestamp(file_path, file_path.stat().st_ctime)
+                        modified = _format_timestamp(file_path, file_path.stat().st_mtime)
+                        result = ScanResult(
+                            year_folder=year.name,
+                            month_folder=month_name,
+                            period=period,
+                            list_folder=list_folder_name,
+                            excel_file=file_path.name,
+                            created=created,
+                            modified=modified,
+                            project_code=_get(data_row, mapping, "project_code"),
+                            project_name=_get(data_row, mapping, "project_name"),
+                            demanded_by=_get(data_row, mapping, "demanded_by"),
+                            item=_get(data_row, mapping, "item"),
+                            cas_no=_get(data_row, mapping, "cas_no"),
+                            sat_no=_get(data_row, mapping, "sat_no"),
+                            similarity=similarity_score,
+                            source_path=str(file_path),
+                            row_number=data_row_number,
+                        )
+                        self.result_found.emit(result)
                 except Exception as exc:  # noqa: BLE001 - a bad file must not stop the scan
                     self.error.emit(f"{file_path.name}: {exc}")
                 processed += 1

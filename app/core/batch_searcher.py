@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import difflib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,29 +10,7 @@ from PySide6.QtCore import QThread, Signal
 from . import excel_reader, searcher
 from .folder_tree import list_folder_excels, month_number_from_name
 from .models import YearFolder
-
-# Values that mean "no CAS number" and must be ignored during matching.
-INVALID_CAS = {"", "na", "n/a", "n.a.", "-", "?"}
-
-
-def is_valid_cas(value: str) -> bool:
-    """Return True when the CAS value carries real data."""
-    return value.strip().lower() not in INVALID_CAS
-
-
-def item_similarity(a: str, b: str) -> float:
-    """Advanced text similarity (0-100) combining sequence and token matching."""
-    a = a.strip().lower()
-    b = b.strip().lower()
-    if not a or not b:
-        return 0.0
-    if a == b:
-        return 100.0
-    seq = difflib.SequenceMatcher(None, a, b).ratio() * 100.0
-    token = difflib.SequenceMatcher(None, " ".join(sorted(a.split())),
-                                    " ".join(sorted(b.split()))).ratio() * 100.0
-    return max(seq, token)
-
+from .similarity import is_valid_cas, item_similarity
 
 @dataclass
 class InputRow:
@@ -58,6 +35,7 @@ class BatchMatch:
     similarity: float   # item similarity percentage (100.0 for CAS-only hits)
     matched_by: str     # "item", "cas" or "both"
     source_path: str
+    row_number: int = 0         # 1-based data-row number in the archive Excel file
 
 
 class BatchSearchThread(QThread):
@@ -129,7 +107,7 @@ class BatchSearchThread(QThread):
         sat_col = mapping.get("sat_no")
         item_col = mapping["item"]
 
-        for data_row in rows[1:]:
+        for data_row_number, data_row in enumerate(rows[1:], start=2):
             if not data_row:
                 continue
             archive_item = data_row[item_col] if item_col < len(data_row) else ""
@@ -140,15 +118,26 @@ class BatchSearchThread(QThread):
 
             for entry in self._input_rows:
                 item_score = item_similarity(entry.item, archive_item)
-                item_hit = bool(entry.item.strip()) and item_score >= self._threshold
+                # A term that appears inside the archive value is a guaranteed
+                # match, otherwise require the fuzzy similarity to reach the
+                # threshold. This keeps batch results a superset of substring
+                # hits, matching the manual search behaviour.
+                substring_hit = bool(entry.item.strip()) and \
+                    entry.item.strip().lower() in archive_item.strip().lower()
+                item_hit = bool(entry.item.strip()) and \
+                    (substring_hit or item_score >= self._threshold)
                 cas_hit = (entry in cas_inputs and is_valid_cas(archive_cas)
                            and entry.cas_no.strip().lower() in archive_cas.lower())
                 if not (item_hit or cas_hit):
                     continue
                 if item_hit and cas_hit:
                     matched_by = "both"
+                    if substring_hit:
+                        item_score = 100.0
                 elif item_hit:
                     matched_by = "item"
+                    if substring_hit:
+                        item_score = 100.0
                 else:
                     matched_by = "cas"
                     item_score = 100.0  # CAS hit without meaningful item score
@@ -163,6 +152,7 @@ class BatchSearchThread(QThread):
                     similarity=round(item_score, 1),
                     matched_by=matched_by,
                     source_path=str(file_path),
+                    row_number=data_row_number,
                 ))
 
 

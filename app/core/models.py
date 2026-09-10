@@ -46,4 +46,6 @@ class ScanResult:
     item: str
     cas_no: str
     sat_no: str
+    similarity: float = 100.0   # match percentage (100.0 for substring / exact hits)
     source_path: str = ""
+    row_number: int = 0         # 1-based data-row number in the source Excel file

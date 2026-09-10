@@ -173,7 +173,11 @@ class MainWindow(QMainWindow):
         self.search_panel.set_running(True)
         self._status.setText("Searching...")
 
-        self._thread = searcher.SearchThread(selected, criteria, self)
+        self._thread = searcher.SearchThread(
+            selected, criteria,
+            mode=self.search_panel.mode(),
+            similarity_threshold=self.search_panel.similarity_threshold(),
+            parent=self)
         self._thread.progress.connect(self._on_progress)
         self._thread.result_found.connect(self.results_table.add_result)
         self._thread.error.connect(self._on_scan_error)
